@@ -3,9 +3,11 @@ package com.example.current_location
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
 import android.location.LocationManager
-import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -24,8 +26,10 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var context: Context
     private lateinit var activity: Activity
     private var mLocationManager: LocationManager? = null
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
 
-    private fun getCoordinates(): Map<String, Double> {
+
+    private fun getCoordinates(result: Result): Map<String, Double> {
         var lat = 0.0
         var long = 0.0
         print("start getlatitude")
@@ -40,14 +44,24 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         ) {
             if (isGpsEnabled != null) {
                 if (isGpsEnabled) {
-                    val locationGps =
-                        mLocationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                    if (locationGps != null) {
-                        lat = locationGps.latitude
-                        long = locationGps.longitude
-                        println("location manager got latitude of: $lat")
+                    fusedLocationClient = LocationServices.getFusedLocationProviderClient(activity)
+                    fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                        lat = location?.latitude ?: 0.0
+                        long = location?.longitude ?: 0.0
+                        println("fused location got coordinates of: $lat, $long")
+                        val coordinates = mapOf<String, Double>(
+                            "latitude" to lat,
+                            "longitude" to long,
+                        )
+                        result.success(coordinates)
                     }
-
+//                    val locationGps =
+//                        mLocationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+//                    if (locationGps != null) {
+//                        lat = locationGps.latitude
+//                        long = locationGps.longitude
+//                        println("location manager got coords of: $lat, $long")
+//                    }
                 } else {
                     println("TURN ON GPS")
                 }
@@ -66,32 +80,32 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         return coordinates
     }
 
-    override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+    override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "current_location")
         channel.setMethodCallHandler(this)
         // access context
         context = flutterPluginBinding.applicationContext
     }
 
-    override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
+    override fun onMethodCall(call: MethodCall, result: Result) {
         if (call.method == "getPlatformVersion") {
             result.success("Android ${android.os.Build.VERSION.RELEASE}")
         } else if (call.method == "getCoordinates") {
-            val reading: Map<String, Double> = getCoordinates()
-            result.success(reading)
+            val reading: Map<String, Double> = getCoordinates(result)
+//            result.success(reading)
         } else {
             result.notImplemented()
         }
     }
 
-    override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         // access activity
         // used when requesting user permission to access location
-        activity = binding.activity;
+        activity = binding.activity
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
