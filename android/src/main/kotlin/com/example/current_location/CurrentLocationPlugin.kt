@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
@@ -15,9 +17,11 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import io.flutter.plugin.common.PluginRegistry
 
 /** CurrentLocationPlugin */
-class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
+class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler,
+    PluginRegistry.RequestPermissionsResultListener, ActivityAware {
     /// The MethodChannel that will the communication between Flutter and native Android
     ///
     /// This local reference serves to register the plugin with the Flutter Engine and unregister it
@@ -27,8 +31,10 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var activity: Activity
     private var mLocationManager: LocationManager? = null
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var methodChannelResult: Result
 
 
+    @RequiresApi(Build.VERSION_CODES.M)
     private fun getCoordinates(result: Result): Map<String, Double> {
         var lat = 0.0
         var long = 0.0
@@ -70,7 +76,7 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             // ask user for permission to use fine location
             val permissions: Array<String> =
                 arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
-            ActivityCompat.requestPermissions(activity, permissions, 1)
+            activity.requestPermissions(permissions, 1)
         }
         val coordinates = mapOf<String, Double>(
             "latitude" to lat,
@@ -87,10 +93,12 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         context = flutterPluginBinding.applicationContext
     }
 
+    @RequiresApi(Build.VERSION_CODES.M)
     override fun onMethodCall(call: MethodCall, result: Result) {
         if (call.method == "getPlatformVersion") {
             result.success("Android ${android.os.Build.VERSION.RELEASE}")
         } else if (call.method == "getCoordinates") {
+            methodChannelResult = result
             val reading: Map<String, Double> = getCoordinates(result)
 //            result.success(reading)
         } else {
@@ -106,6 +114,7 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         // access activity
         // used when requesting user permission to access location
         activity = binding.activity
+        binding.addRequestPermissionsResultListener(this)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -118,5 +127,29 @@ class CurrentLocationPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onDetachedFromActivity() {
         TODO("Not yet implemented")
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ): Boolean {
+        var lat = 0.0
+        var long = 0.0
+        if (grantResults.first() == PackageManager.PERMISSION_GRANTED) {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(activity)
+            fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                lat = location?.latitude ?: 0.0
+                long = location?.longitude ?: 0.0
+                println("onRequestPermissionsResult => fused location got coordinates of: $lat, $long")
+                val coordinates = mapOf<String, Double>(
+                    "latitude" to lat,
+                    "longitude" to long,
+                )
+                methodChannelResult.success(coordinates)
+            }
+            return true
+        }
+        return false
     }
 }
